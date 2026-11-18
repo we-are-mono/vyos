@@ -1,0 +1,22 @@
+#!/bin/sh
+# The files U-Boot boots, next to VyOS's own in /boot: the raw arm64 Image
+# (U-Boot cannot start VyOS's EFI zboot vmlinuz) and the board's device tree.
+# VyOS's image installer copies every file in an image's /boot, so each
+# installed image carries its own (`add system image` included).
+#
+# Called by the kernel package as: zz-mono-uboot <kernel release> [<image>]
+set -e
+
+krel=$1
+[ -n "$krel" ] || exit 0
+[ -f "/boot/vmlinuz-$krel" ] || exit 0
+
+/usr/libexec/mono/unzboot "/boot/vmlinuz-$krel" /boot/Image
+dtb="/usr/lib/linux-image-$krel/freescale/mono-gateway-dk.dtb"
+if [ -f "$dtb" ]; then
+    cp "$dtb" /boot/mono-gateway-dk.dtb.tmp
+    mv /boot/mono-gateway-dk.dtb.tmp /boot/mono-gateway-dk.dtb
+else
+    echo "zz-mono-uboot: $dtb not found" >&2
+    exit 1
+fi

@@ -11,7 +11,9 @@
 #   32 MiB        p1 "persistence" (ext4): the VyOS installed-image layout,
 #                 exactly as VyOS's own installer writes it, plus
 #                 /boot/extlinux/extlinux.conf for U-Boot's
-#                 `sysboot mmc 0:1 any ${scriptaddr} /boot/extlinux/extlinux.conf`.
+#                 `sysboot mmc 0:1 any ${scriptaddr} /boot/extlinux/extlinux.conf`,
+#                 written by the image's own extlinux-sync (mono-gateway-bsp),
+#                 as it rewrites it on every image change on the device.
 #                 The partition is grown to the whole eMMC on first boot
 #                 (mono-grow-persistence.service).
 set -euo pipefail
@@ -20,7 +22,6 @@ ISO=$1
 OUTDIR=$2
 WORK=$3
 DTB=mono-gateway-dk.dtb
-EARLYCON=earlycon=uart8250,mmio,0x21c0500
 OWNER=${OWNER:-0:0}
 
 cleanup() {
@@ -40,8 +41,6 @@ unsquashfs -q -n -d "$WORK/rootfs" "$WORK/iso/filesystem.squashfs"
 
 KREL=$(ls "$WORK/rootfs/lib/modules")
 [ "$(echo "$KREL" | wc -l)" = 1 ] || { echo "E: expected one kernel in the image, got: $KREL"; exit 1; }
-DTB_SRC=$WORK/rootfs/usr/lib/linux-image-$KREL/freescale/$DTB
-[ -f "$DTB_SRC" ] || { echo "E: $DTB not in linux-image-$KREL"; exit 1; }
 
 # --- the VyOS installed-image layout (vyos-build raw_image.install_image) ---
 P=$WORK/part
@@ -51,33 +50,12 @@ cp "$WORK/iso/filesystem.squashfs" "$V/$VERSION.squashfs"
 for f in "$WORK"/rootfs/boot/*; do
     [ -f "$f" ] && cp -L "$f" "$V/"
 done
-[ -f "$V/vmlinuz" ] && [ -f "$V/initrd.img" ] || { echo "E: no vmlinuz/initrd.img in the image's /boot"; exit 1; }
+# VyOS's own vmlinuz and initrd.img, and the raw Image and device tree U-Boot
+# boots, which mono-gateway-bsp's kernel hook put in the image's /boot.
+for f in vmlinuz initrd.img Image "$DTB"; do
+    [ -f "$V/$f" ] || { echo "E: no $f in the image's /boot (is mono-gateway-bsp in it?)"; exit 1; }
+done
 echo "/ union" > "$P/persistence.conf"
-
-# U-Boot's booti needs the raw arm64 Image ("ARMd" at 0x38). VyOS builds an
-# EFI zboot vmlinuz (CONFIG_EFI_ZBOOT): a PE stub around a compressed Image,
-# described by its "zimg" header. Ship the raw Image, so booting depends neither
-# on zboot support nor on kernel_comp_addr_r/kernel_comp_size in the env.
-python3 - "$V/vmlinuz" "$V/Image" <<'PYEOF'
-import gzip, struct, sys
-src, dst = sys.argv[1], sys.argv[2]
-d = open(src, 'rb').read()
-if d[4:8] == b'zimg':
-    off, size = struct.unpack_from('<II', d, 8)
-    comp = d[0x18:0x20].rstrip(b'\0')
-    if comp != b'gzip':
-        sys.exit(f'E: zboot payload is {comp!r}, only gzip is handled')
-    img = gzip.decompress(d[off:off + size])
-elif d[:2] == b'\x1f\x8b':
-    img = gzip.decompress(d)
-else:
-    img = d
-if img[0x38:0x3c] != b'ARMd':
-    sys.exit('E: no arm64 Image magic in the kernel')
-open(dst, 'wb').write(img)
-print(f'I: raw arm64 Image {len(img)} bytes')
-PYEOF
-cp "$DTB_SRC" "$V/$DTB"
 
 # --- GRUB bookkeeping, written by the image's own vyos-1x code, so that
 # `show system image` and image management see a normal VyOS install. U-Boot
@@ -108,21 +86,11 @@ grub.set_default(version, root)
 grub.set_console_type('ttyS', root)
 print(grub.BOOT_OPTS_STEM + version)
 PYEOF
-BOOT_OPTS=$(chroot "$WORK/rootfs" /usr/bin/python3 -c "from vyos.system import grub; print(grub.BOOT_OPTS_STEM)")$VERSION
+# U-Boot's extlinux.conf, by the same code that maintains it on the device.
+chroot "$WORK/rootfs" /usr/libexec/mono/extlinux-sync /
 cleanup
 
-# --- extlinux for U-Boot (same kernel arguments GRUB would pass) ---
-mkdir -p "$P/boot/extlinux"
-cat > "$P/boot/extlinux/extlinux.conf" <<EOF
-default vyos
-timeout 1
-label vyos
-	menu label VyOS $VERSION
-	kernel /boot/$VERSION/Image
-	initrd /boot/$VERSION/initrd.img
-	fdt /boot/$VERSION/$DTB
-	append $BOOT_OPTS console=ttyS0,115200 $EARLYCON
-EOF
+[ -f "$P/boot/extlinux/extlinux.conf" ] || { echo "E: extlinux-sync wrote no extlinux.conf"; exit 1; }
 cat "$P/boot/extlinux/extlinux.conf"
 
 # --- filesystem + disk image ---

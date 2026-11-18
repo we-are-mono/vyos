@@ -1,0 +1,12 @@
+[Unit]
+Description=Follow VyOS image changes for U-Boot's extlinux.conf
+
+[Path]
+# `add system image` and `delete system image` change the version list;
+# `set system image default-boot` changes the defaults file.
+PathChanged=/usr/lib/live/mount/persistence/boot/grub/grub.cfg.d/vyos-versions
+PathChanged=/usr/lib/live/mount/persistence/boot/grub/grub.cfg.d/20-vyos-defaults-autoload.cfg
+Unit=mono-extlinux-sync.service
+
+[Install]
+WantedBy=paths.target

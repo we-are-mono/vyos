@@ -16,6 +16,9 @@ board drivers, as in Mono's OpenWrt.
   configuration.
 - **Board**: the status LED and SFP port LED drivers; on first boot the data
   partition grows to fill the eMMC.
+- **Upgrades**: VyOS's own `add system image` works. U-Boot boots
+  `/boot/extlinux/extlinux.conf`, which is rewritten from VyOS's image list
+  whenever images are added, removed or the default changes.
 - **VyOS packages with kernel modules** (nat-rtsp, jool, ipt-netflow,
   accel-ppp): VyOS's own packages with only the modules rebuilt for this kernel.
 
@@ -222,6 +225,47 @@ Forwarded traffic between the ports is offloaded to the hardware
 automatically; `sudo cat /proc/ask_flowtable/status` shows the offloaded
 flows (`entries`).
 
+## Upgrade
+
+Releases are published on this repository's
+[Releases](https://github.com/we-are-mono/vyos/releases) page. A running
+Gateway upgrades itself from there with VyOS's usual commands. Once, point it
+at the release feed:
+
+```
+configure
+set system update-check url https://github.com/we-are-mono/vyos/releases/latest/download/image-version.json
+commit
+save
+exit
+```
+
+Then, to upgrade to the newest release:
+
+```
+add system image latest
+reboot
+```
+
+`add system image` also takes the URL of a release's ISO, or a file. It asks
+a few questions; the defaults keep your configuration. It warns that the image
+has no signature (releases are not signed yet); answer yes to continue.
+
+The new image becomes the default; the previous one stays installed. To go
+back, or to clean up:
+
+```
+show system image
+set system image default-boot <version>
+delete system image <version>
+```
+
+U-Boot shows the installed images on the serial console for 3 seconds before
+it boots the default. If a new image does not come up, reset the Gateway and
+pick the previous one there.
+
+To publish a release from a build (maintainers): `./publish.sh`.
+
 ## Known gaps
 
 - **Do not run `install image` on the Gateway.** VyOS's installer wipes the
@@ -229,8 +273,6 @@ flows (`entries`).
   firmware and the recovery system. The board then only boots from QSPI until
   `firmware update` restores the eMMC firmware. Flash the image as above
   instead.
-- `add system image` updates GRUB's configuration, not `extlinux.conf`, so an
-  upgraded image is not booted yet.
 - Wi-Fi is not built.
 - The VyOS packages whose kernel modules are rebuilt (nat-rtsp, jool,
   ipt-netflow, accel-ppp) are fetched from VyOS's rolling repository by exact

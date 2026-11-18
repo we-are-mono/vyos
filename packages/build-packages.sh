@@ -200,7 +200,7 @@ cp -a "$HERE/bsp" "$d"
 # Modes from the source tree's umask would leak into the package.
 find "$d" -type d -exec chmod 0755 {} +
 find "$d" -type f -exec chmod 0644 {} +
-chmod 0755 "$d"/usr/libexec/mono/*
+chmod 0755 "$d"/usr/libexec/mono/* "$d"/etc/kernel/postinst.d/*
 mkdir -p "$d/DEBIAN"
 BSP_VER=1.0~$(date -u +%Y%m%d%H%M)
 cat > "$d/DEBIAN/control" <<EOF
@@ -208,12 +208,15 @@ Package: mono-gateway-bsp
 Version: $BSP_VER
 Architecture: all
 Maintainer: Tomaz Zaman <tomaz@mono.si>
-Depends: fdisk, e2fsprogs, util-linux
+Depends: fdisk, e2fsprogs, util-linux, python3, vyos-1x
 Section: admin
 Priority: optional
 Description: Mono Gateway DK board support for VyOS
- First-boot growth of the VyOS persistence partition to the size of the eMMC,
- and the RGBW status LED's steady state (white, dim) once VyOS is configured.
+ U-Boot boot support: the raw kernel Image and device tree in every image's
+ /boot, and /boot/extlinux/extlinux.conf kept in step with VyOS's image list,
+ so `add system image` upgrades boot. First-boot growth of the persistence
+ partition to the size of the eMMC, and the RGBW status LED's steady state
+ (white, dim) once VyOS is configured.
 EOF
 cat > "$d/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
@@ -221,6 +224,12 @@ set -e
 if [ "$1" = configure ]; then
     deb-systemd-helper enable mono-grow-persistence.service >/dev/null || true
     deb-systemd-helper enable mono-status-led.service >/dev/null || true
+    deb-systemd-helper enable mono-extlinux-sync.service >/dev/null || true
+    deb-systemd-helper enable mono-extlinux-sync.path >/dev/null || true
+    # Kernels installed before this package missed its postinst.d hook.
+    for v in /boot/vmlinuz-*; do
+        [ -f "$v" ] && /etc/kernel/postinst.d/zz-mono-uboot "${v#/boot/vmlinuz-}"
+    done
 fi
 EOF
 chmod 0755 "$d/DEBIAN/postinst"

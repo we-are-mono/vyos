@@ -1,0 +1,125 @@
+#!/usr/bin/python3
+# extlinux-sync [<root>]: write U-Boot's /boot/extlinux/extlinux.conf from
+# VyOS's own image list.
+#
+# VyOS manages its images through GRUB's configuration (`add system image`,
+# `delete system image`, `set system image default-boot`), but the Gateway's
+# U-Boot boots /boot/extlinux/extlinux.conf on the data partition. This writes
+# one entry per installed image, with the kernel arguments VyOS would give it
+# (its boot_opts, so `set system option kernel ...` carries over) and VyOS's
+# default image as the default. mono-extlinux-sync.path runs it whenever the
+# image list or the default changes.
+#
+# An image installed by `add system image` arrives with VyOS's files only (the
+# installer copies vmlinuz and initrd.img from the ISO): this adds the raw
+# Image U-Boot boots, unwrapped from the image's own vmlinuz, and the board's
+# device tree from the image's own root filesystem.
+#
+# <root> is the root of the data partition: VyOS's persistence mount by
+# default; the image assembler passes the partition it is building.
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+from vyos.system import grub
+from vyos.system import image
+
+ROOT = sys.argv[1] if len(sys.argv) > 1 else '/usr/lib/live/mount/persistence'
+DTB = 'mono-gateway-dk.dtb'
+# The SoC's DUART; earlycon catches what happens before the 8250 driver binds.
+CONSOLE = 'console=ttyS0,115200 earlycon=uart8250,mmio,0x21c0500'
+TARGET = Path(ROOT, 'boot/extlinux/extlinux.conf')
+
+
+def complete(version: str) -> None:
+    """Add the Image and device tree U-Boot needs to an image that lacks them."""
+    d = Path(ROOT, 'boot', version)
+    if not (d / 'Image').is_file() and (d / 'vmlinuz').is_file():
+        rc = subprocess.run(['/usr/libexec/mono/unzboot', str(d / 'vmlinuz'), str(d / 'Image')])
+        if rc.returncode == 0:
+            print(f'extlinux-sync: {version}: unwrapped Image from vmlinuz')
+    squashfs = d / f'{version}.squashfs'
+    if not (d / DTB).is_file() and squashfs.is_file():
+        with tempfile.TemporaryDirectory() as mnt:
+            if subprocess.run(['mount', '-o', 'loop,ro', str(squashfs), mnt]).returncode != 0:
+                return
+            try:
+                found = sorted(Path(mnt).glob(f'boot/{DTB}')) or \
+                        sorted(Path(mnt).glob(f'usr/lib/linux-image-*/freescale/{DTB}'))
+                if found:
+                    tmp = d / f'{DTB}.tmp'
+                    shutil.copyfile(found[0], tmp)
+                    os.replace(tmp, d / DTB)
+                    print(f'extlinux-sync: {version}: {DTB} from its root filesystem')
+            finally:
+                subprocess.run(['umount', mnt])
+
+
+def bootable(version: str) -> bool:
+    d = Path(ROOT, 'boot', version)
+    missing = [f for f in ('Image', 'initrd.img', DTB) if not (d / f).is_file()]
+    if missing:
+        print(f'extlinux-sync: skipping {version}: no {", ".join(missing)} '
+              f'(an image built for another board?)', file=sys.stderr)
+        return False
+    return True
+
+
+def main() -> int:
+    versions = grub.version_list(ROOT)
+    for v in versions:
+        complete(v)
+    versions = [v for v in versions if bootable(v)]
+    if not versions:
+        # Never leave U-Boot without an entry; keep whatever is there.
+        print('extlinux-sync: no bootable image found; extlinux.conf left as it is',
+              file=sys.stderr)
+        return 1
+    default = image.get_default_image(ROOT)
+    if default not in versions:
+        default = versions[0]
+
+    lines = [
+        '# Written by extlinux-sync from VyOS\'s image list; do not edit.',
+        f'default {default}',
+        'timeout 30',
+        'menu title VyOS',
+        '',
+    ]
+    for v in versions:
+        # BOOT_IMAGE is what GRUB passes and what VyOS reads to tell an
+        # installed system from a live one (vyos.system.image.is_live_boot).
+        lines += [
+            f'label {v}',
+            f'\tmenu label VyOS {v}',
+            f'\tkernel /boot/{v}/Image',
+            f'\tinitrd /boot/{v}/initrd.img',
+            f'\tfdt /boot/{v}/{DTB}',
+            f'\tappend BOOT_IMAGE=/boot/{v}/vmlinuz {grub.get_boot_opts(v, ROOT)} {CONSOLE}',
+            '',
+        ]
+    text = '\n'.join(lines)
+
+    if TARGET.is_file() and TARGET.read_text() == text:
+        return 0
+    TARGET.parent.mkdir(parents=True, exist_ok=True)
+    tmp = TARGET.with_suffix('.tmp')
+    with open(tmp, 'w') as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, TARGET)
+    fd = os.open(TARGET.parent, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    print(f'extlinux-sync: {len(versions)} image(s), default {default}')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

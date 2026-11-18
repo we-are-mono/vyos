@@ -1,0 +1,12 @@
+[Unit]
+Description=Write U-Boot's extlinux.conf from VyOS's image list
+# Runs at boot, to catch changes made while the system was down, and from
+# mono-extlinux-sync.path whenever VyOS changes its images.
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/mono/extlinux-sync
+
+[Install]
+WantedBy=multi-user.target
