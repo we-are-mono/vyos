@@ -52,4 +52,10 @@ ISO=$SRC/build/vyos-$VERSION-$FLAVOR-arm64.iso
 mkdir -p "$BUILD/images"
 cp "$ISO" "$BUILD/images/"
 echo "$BUILD/images/$(basename "$ISO")" > "$BUILD/images/latest-iso"
+# The base a layered development build (build.sh dev) starts from, and the
+# packages it was built with, by content.
+echo "$BUILD/images/$(basename "$ISO")" > "$BUILD/images/latest-full-iso"
+for deb in "$SRC"/packages/*.deb; do
+    echo "$(dpkg-deb -f "$deb" Package) $(sha256sum "$deb" | cut -d' ' -f1)"
+done > "$BUILD/images/$(basename "$ISO").debs"
 echo "I: ISO: $BUILD/images/$(basename "$ISO")"

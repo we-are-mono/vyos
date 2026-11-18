@@ -35,6 +35,7 @@ xorriso -osirrox on -indev "$ISO" -extract /version.json "$VJSON" >/dev/null 2>&
     || { echo "E: cannot read version.json from $ISO"; exit 1; }
 VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$VJSON")
 [ -n "$VERSION" ] || { echo "E: cannot read the version from $ISO"; exit 1; }
+case "$VERSION" in *-dev) echo "E: $VERSION is a development build; publish full builds only"; exit 1 ;; esac
 ISO_NAME=$(basename "$ISO")
 EMMC_NAME=$(basename "$EMMC")
 gh release view "$VERSION" --repo "$REPO" >/dev/null 2>&1 \

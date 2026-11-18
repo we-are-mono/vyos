@@ -6,6 +6,9 @@
 #   ./build.sh iso        VyOS ISO (vyos-build, arm64)
 #   ./build.sh emmc       flashable eMMC image from the ISO
 #   ./build.sh all        everything, in order
+#   ./build.sh dev        development image in minutes: packages, then the
+#                         last full ISO with the changed .debs layered on top
+#                         (image/dev-assemble.sh), then the eMMC image
 set -euo pipefail
 
 TOP=$(cd "$(dirname "$0")" && pwd)
@@ -41,9 +44,10 @@ step_kernel()   { "$TOP/kernel/prepare-tree.sh"; cross "$TOP/kernel/build-kernel
 step_packages() { cross "$TOP/packages/build-packages.sh"; }
 step_iso()      { "$TOP/image/build-iso.sh"; }
 step_emmc()     { cross_image; "$TOP/image/build-emmc.sh"; }
+step_dev()      { cross_image; "$TOP/image/build-dev.sh"; }
 
 case "${1:-all}" in
-    kernel|packages|iso|all) vyos_build ;;
+    kernel|packages|iso|all|dev) vyos_build ;;
 esac
 case "${1:-all}" in
     kernel)   step_kernel ;;
@@ -51,5 +55,6 @@ case "${1:-all}" in
     iso)      step_iso ;;
     emmc)     step_emmc ;;
     all)      step_kernel; step_packages; step_iso; step_emmc ;;
-    *) echo "usage: $0 {kernel|packages|iso|emmc|all}"; exit 1 ;;
+    dev)      step_packages; step_dev; step_emmc ;;
+    *) echo "usage: $0 {kernel|packages|iso|emmc|all|dev}"; exit 1 ;;
 esac

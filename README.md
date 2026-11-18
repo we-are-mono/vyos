@@ -45,6 +45,21 @@ Needs, on an x86-64 Linux host:
 The result lands in `build/images/`: `vyos-<version>-mono-gateway-dk-emmc.img`,
 with a `.gz` and a `.sha256`, and the ISO it is made from.
 
+A full build takes about an hour on an x86-64 host, most of it in the ISO step:
+vyos-build runs every arm64 program of the image build under qemu. For
+development there is a shortcut:
+
+```
+./build.sh dev        # about 2 minutes; about 5 when the kernel changed
+```
+
+It rebuilds the packages and installs the ones that changed onto the root
+filesystem of the last full build, then repacks it into an ISO and an eMMC
+image like a full build's. Run `./build.sh kernel` first after kernel changes.
+Development builds are named `<version>-mono-dev` and are never published:
+the result is an upgraded root filesystem, close to a fresh build but not
+identical, so releases come from full builds.
+
 `pins.sh` pins the inputs: the vyos-build commit and container, the ASK
 release and the kernel version. The VyOS packages the ISO installs come from
 VyOS's rolling repository as it is on the day of the build, so two builds of
