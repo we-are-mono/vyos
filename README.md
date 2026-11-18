@@ -212,14 +212,16 @@ save
 exit
 ```
 
-A basic router: `<wan>` is the port facing the internet (address by DHCP),
-`<lan>` the port facing your network. Pick a LAN subnet that differs from the
+A basic router: `<wan>` is the port facing the internet (address and DNS
+servers by DHCP; `system name-server <wan>` lets the Gateway itself use those
+DNS servers, which upgrades need), `<lan>` the port facing your network. Pick a LAN subnet that differs from the
 WAN side; this example uses 192.168.1.0/24, with the Gateway at 192.168.1.1
 handing out .100 to .199 and answering DNS:
 
 ```
 configure
 set interfaces ethernet <wan> address dhcp
+set system name-server <wan>
 set interfaces ethernet <lan> address 192.168.1.1/24
 set service dhcp-server listen-interface <lan>
 set service dhcp-server shared-network-name LAN subnet 192.168.1.0/24 subnet-id 1
