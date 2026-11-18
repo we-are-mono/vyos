@@ -59,16 +59,13 @@ git_src() {
     git -C "$WORK/$name" checkout -q "$rev"
 }
 
-# rekmod <upstream.deb> <module.ko...>: VyOS's package with its modules
-# replaced by these, its kernel references moved to this kernel.
+# rekmod <package> <module.ko...>: VyOS's package (the one upstream_deb
+# fetched) with its modules replaced by these, its kernel references moved to
+# this kernel.
 rekmod() {
-    local file=$1; shift
-    local deb=$UPSTREAM/$file name dir oldk ver
-    if [ ! -f "$deb" ]; then
-        local path; path=$(pool_path "$file")
-        [ -n "$path" ] || { echo "E: $file is not in VyOS's arm64 Packages index"; exit 1; }
-        curl -sSfL -o "$deb.part" "$VYOS_REPO/$path" && mv "$deb.part" "$deb"
-    fi
+    local pkg=$1; shift
+    local deb name dir oldk ver
+    deb=$UPSTREAM/$(basename "$(index_field "$pkg" Filename)")
     name=$(dpkg-deb -f "$deb" Package)
     dir=$WORK/deb-$name
     rm -rf "$dir"; dpkg-deb -R "$deb" "$dir"
@@ -90,16 +87,57 @@ rekmod() {
     echo "I: $name $ver ($(ls "$dir/lib/modules/$KERNEL_RELEASE/extra" | tr '\n' ' '))"
 }
 
-# The package filename in VyOS's pool, from the cached Packages index.
-pool_path() {
-    local idx=$CACHE/Packages-arm64
-    if [ ! -f "$idx" ]; then
-        curl -sSfL -o "$idx.gz.part" "$VYOS_REPO/dists/rolling/main/binary-arm64/Packages.gz" \
-            && gunzip -c "$idx.gz.part" > "$idx.part" && mv "$idx.part" "$idx"
-        rm -f "$idx.gz.part" "$idx.part"
-    fi
-    # Compared as a string: VyOS filenames carry '+', which a regex would eat.
-    awk -v f="/$1" '$1=="Filename:" && substr($2, length($2) - length(f) + 1) == f {print $2; exit}' "$idx"
+# VyOS's arm64 package index, fetched fresh for every build: the rolling
+# repository carries only current versions. A cached copy stands in only when
+# the repository cannot be reached.
+IDX=$CACHE/Packages-arm64
+if curl -sSfL -o "$IDX.gz.part" "$VYOS_REPO/dists/rolling/main/binary-arm64/Packages.gz" \
+        && gunzip -c "$IDX.gz.part" > "$IDX.part"; then
+    mv "$IDX.part" "$IDX"
+else
+    [ -f "$IDX" ] || { echo "E: cannot fetch VyOS's package index"; exit 1; }
+    echo "W: cannot fetch VyOS's package index; using the cached one"
+fi
+rm -f "$IDX.gz.part" "$IDX.part"
+
+# index_field <package> <field>: a field of the package's index entry.
+index_field() {
+    awk -v p="$1" -v f="$2:" '$1=="Package:" {cur=$2} cur==p && $1==f {print $2; exit}' "$IDX"
+}
+
+# vyos_src <name> <field>: commit_id or scm_url of a package vyos-build builds
+# with its kernel (linux-kernel/package.toml at VYOS_BUILD_REF).
+vyos_src() {
+    python3 -c '
+import sys, tomllib
+toml, name, field = sys.argv[1:]
+for p in tomllib.load(open(toml, "rb"))["packages"]:
+    if p["name"] == name:
+        print(p[field]); break
+else:
+    sys.exit(f"{name} not in {toml}")
+' "$VYOS_BUILD/scripts/package-build/linux-kernel/package.toml" "$1" "$2"
+}
+
+# upstream_deb <package> <source id>: fetch VyOS's current package from the
+# index, and refuse one not built from the source this build uses (the source
+# id must appear in its version or file name). VyOS moving a package past the
+# pinned vyos-build is then a clear error, fixed by moving VYOS_BUILD_REF.
+upstream_deb() {
+    local pkg=$1 id=$2 ver file
+    ver=$(index_field "$pkg" Version)
+    file=$(index_field "$pkg" Filename)
+    [ -n "$file" ] || { echo "E: $pkg is not in VyOS's arm64 package index"; exit 1; }
+    case "$ver $(basename "$file")" in
+        *"$id"*) ;;
+        *) echo "E: VyOS's repository has $pkg $ver; vyos-build ${VYOS_BUILD_REF:0:12} builds it from $id."
+           echo "E: Move VYOS_BUILD_REF in pins.sh to the vyos-build commit that matches."
+           exit 1 ;;
+    esac
+    [ -f "$UPSTREAM/$(basename "$file")" ] || {
+        curl -sSfL -o "$UPSTREAM/$(basename "$file").part" "$VYOS_REPO/$file" \
+            && mv "$UPSTREAM/$(basename "$file").part" "$UPSTREAM/$(basename "$file")"; }
+    echo "I: $pkg $ver from VyOS, source $id"
 }
 
 echo "I: ask-modules"
@@ -238,33 +276,44 @@ dpkg-deb -Zxz --root-owner-group -b "$d" "$OUT/mono-gateway-bsp_${BSP_VER}_all.d
 
 KO=$(kosuffix)
 
+# The source revisions are vyos-build's, at VYOS_BUILD_REF.
 echo "I: nat-rtsp (kernel modules)"
-git_src nat-rtsp https://github.com/maru-sama/rtsp-linux.git 5aeee02
+rev=$(vyos_src nat-rtsp commit_id)
+upstream_deb nat-rtsp "$rev"
+git_src nat-rtsp "$(vyos_src nat-rtsp scm_url)" "$rev"
 $KMAKE M="$WORK/nat-rtsp" modules > "$WORK/nat-rtsp.log" 2>&1 || { tail -30 "$WORK/nat-rtsp.log"; exit 1; }
 finish_modules "$WORK"/nat-rtsp/nf_conntrack_rtsp.ko "$WORK"/nat-rtsp/nf_nat_rtsp.ko
-rekmod nat-rtsp_5.3+5+g5aeee02_arm64.deb "$WORK"/nat-rtsp/nf_conntrack_rtsp$KO "$WORK"/nat-rtsp/nf_nat_rtsp$KO
+rekmod nat-rtsp "$WORK"/nat-rtsp/nf_conntrack_rtsp$KO "$WORK"/nat-rtsp/nf_nat_rtsp$KO
 
 echo "I: jool (kernel modules)"
-[ -f "$CACHE/jool-4.1.15.tar.gz" ] || { curl -sSfL -o "$CACHE/jool-4.1.15.tar.gz.part" https://github.com/NICMx/Jool/archive/refs/tags/v4.1.15.tar.gz && mv "$CACHE/jool-4.1.15.tar.gz.part" "$CACHE/jool-4.1.15.tar.gz"; }
-mkdir -p "$WORK/jool"; tar -xzf "$CACHE/jool-4.1.15.tar.gz" -C "$WORK/jool" --strip-components=1
+# vyos-build builds Jool from its release tarball (build-jool.sh).
+jv=$(sed -n 's/^PACKAGE_VERSION=//p' "$VYOS_BUILD/scripts/package-build/linux-kernel/build-jool.sh")
+upstream_deb jool "${jv}-"
+tgz=$CACHE/jool-$jv.tar.gz
+[ -f "$tgz" ] || { curl -sSfL -o "$tgz.part" "https://github.com/NICMx/Jool/archive/refs/tags/v$jv.tar.gz" && mv "$tgz.part" "$tgz"; }
+mkdir -p "$WORK/jool"; tar -xzf "$tgz" -C "$WORK/jool" --strip-components=1
 for m in common nat64 siit; do
     $KMAKE M="$WORK/jool/src/mod/$m" modules >> "$WORK/jool.log" 2>&1 || { tail -30 "$WORK/jool.log"; exit 1; }
 done
 finish_modules "$WORK"/jool/src/mod/common/jool_common.ko "$WORK"/jool/src/mod/nat64/jool.ko "$WORK"/jool/src/mod/siit/jool_siit.ko
-rekmod jool_4.1.15-1_arm64.deb "$WORK"/jool/src/mod/common/jool_common$KO "$WORK"/jool/src/mod/nat64/jool$KO "$WORK"/jool/src/mod/siit/jool_siit$KO
+rekmod jool "$WORK"/jool/src/mod/common/jool_common$KO "$WORK"/jool/src/mod/nat64/jool$KO "$WORK"/jool/src/mod/siit/jool_siit$KO
 
 echo "I: vyos-ipt-netflow (kernel module)"
-git_src ipt-netflow https://github.com/nuclearcat/ipt-netflow 6135551
+rev=$(vyos_src ipt-netflow commit_id)
+upstream_deb vyos-ipt-netflow "$rev"
+git_src ipt-netflow "$(vyos_src ipt-netflow scm_url)" "$rev"
 for p in "$VYOS_PATCHES"/ipt-netflow/*.patch; do patch -d "$WORK/ipt-netflow" -p1 -s < "$p"; done
 (cd "$WORK/ipt-netflow" && ./configure --enable-direction --enable-macaddress --enable-vlan \
     --enable-sampler --enable-aggregation --kdir="$KSRC" --disable-snmp-agent --ipt-ver=1.8.9 --ipt-lib=/usr/lib/aarch64-linux-gnu/xtables \
     > "$WORK/ipt-netflow.log" 2>&1) || { tail -30 "$WORK/ipt-netflow.log"; exit 1; }
 make -C "$WORK/ipt-netflow" CC="${CROSS_COMPILE}gcc" ipt_NETFLOW.ko >> "$WORK/ipt-netflow.log" 2>&1 || { tail -30 "$WORK/ipt-netflow.log"; exit 1; }
 finish_modules "$WORK"/ipt-netflow/ipt_NETFLOW.ko
-rekmod vyos-ipt-netflow_2.6+67+g6135551_arm64.deb "$WORK"/ipt-netflow/ipt_NETFLOW$KO
+rekmod vyos-ipt-netflow "$WORK"/ipt-netflow/ipt_NETFLOW$KO
 
 echo "I: accel-ppp-ng (kernel modules)"
-git_src accel-ppp-ng https://github.com/accel-ppp/accel-ppp-ng.git 9c2c18e
+rev=$(vyos_src accel-ppp-ng commit_id)
+upstream_deb accel-ppp-ng "$rev"
+git_src accel-ppp-ng "$(vyos_src accel-ppp-ng scm_url)" "$rev"
 for p in "$VYOS_PATCHES"/accel-ppp-ng/*.patch; do patch -d "$WORK/accel-ppp-ng" -p1 -s < "$p"; done
 for m in ipoe vlan_mon; do
     # version.h is what accel-ppp's CMake generates from version.h.in.
@@ -273,7 +322,7 @@ for m in ipoe vlan_mon; do
     $KMAKE M="$WORK/accel-ppp-ng/drivers/$m" modules >> "$WORK/accel.log" 2>&1 || { tail -30 "$WORK/accel.log"; exit 1; }
 done
 finish_modules "$WORK"/accel-ppp-ng/drivers/ipoe/ipoe.ko "$WORK"/accel-ppp-ng/drivers/vlan_mon/vlan_mon.ko
-rekmod accel-ppp-ng_9c2c18e_arm64.deb "$WORK"/accel-ppp-ng/drivers/ipoe/ipoe$KO "$WORK"/accel-ppp-ng/drivers/vlan_mon/vlan_mon$KO
+rekmod accel-ppp-ng "$WORK"/accel-ppp-ng/drivers/ipoe/ipoe$KO "$WORK"/accel-ppp-ng/drivers/vlan_mon/vlan_mon$KO
 
 sha256sum < "$KSRC/certs/signing_key.x509" | cut -d' ' -f1 > "$OUT/.packages-key"
 echo "I: packages done:"

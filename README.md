@@ -299,9 +299,10 @@ same way.
   instead.
 - Wi-Fi is not built.
 - The VyOS packages whose kernel modules are rebuilt (nat-rtsp, jool,
-  ipt-netflow, accel-ppp) are fetched from VyOS's rolling repository by exact
-  version; when VyOS publishes a newer one, `build-packages.sh` needs the new
-  version and source revision.
+  ipt-netflow, accel-ppp) come from VyOS's rolling repository, which carries
+  only current versions; their module sources are the ones vyos-build at
+  `VYOS_BUILD_REF` builds. When VyOS moves one of them on, the build stops
+  and says so; moving `VYOS_BUILD_REF` to a current vyos-build commit fixes it.
 
 ## License
 
