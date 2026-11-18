@@ -29,8 +29,11 @@ git -C "$TOP" merge-base --is-ancestor "$COMMIT" "origin/$(git -C "$TOP" rev-par
     || { echo "E: $COMMIT is not pushed"; exit 1; }
 
 REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
-VERSION=$(xorriso -osirrox on -indev "$ISO" -extract /version.json /dev/stdout 2>/dev/null \
-          | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+VJSON=$(mktemp)
+trap 'rm -f "$VJSON"' EXIT
+xorriso -osirrox on -indev "$ISO" -extract /version.json "$VJSON" >/dev/null 2>&1 \
+    || { echo "E: cannot read version.json from $ISO"; exit 1; }
+VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$VJSON")
 [ -n "$VERSION" ] || { echo "E: cannot read the version from $ISO"; exit 1; }
 ISO_NAME=$(basename "$ISO")
 EMMC_NAME=$(basename "$EMMC")
