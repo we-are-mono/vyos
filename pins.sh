@@ -10,6 +10,9 @@ VYOS_BUILD_REF=43fe89d93a53724ab681120f7917b04367e86a57
 # The vyos-build container image the ISO is built in, by digest (the `rolling`
 # tag moves).
 VYOS_BUILD_IMAGE=vyos/vyos-build@sha256:197f5910a0720b13cde212c36226944728e0aefbe1f0699497cf38202f42d184
+# The same container built for arm64 from VyOS's Dockerfile at VYOS_BUILD_REF
+# (.github/workflows/vyos-build-image.yml), for native builds on arm64 hosts.
+VYOS_BUILD_IMAGE_ARM64=ghcr.io/we-are-mono/vyos-build@sha256:d33038ae642f163410378f355bf3a595333a01dc05150d368771fae82ecef961
 
 # ASK release and the kernel line taken from it. ASK carries every line on one
 # trunk (patches/kernel/<line>, pins/<line>, meta-ask linux-ask_<line>.bb); a

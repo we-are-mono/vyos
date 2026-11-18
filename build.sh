@@ -24,6 +24,16 @@ cross_image() {
             -f "$TOP/docker/Dockerfile.cross" "$TOP/docker"
 }
 
+# The image tools container (eMMC and development steps), for either host
+# architecture; the cross-build container above is x86-64 only.
+TOOLS_IMAGE=mono-vyos-tools:$(sha256sum < "$TOP/docker/Dockerfile.tools" | cut -c1-12)
+export TOOLS_IMAGE
+
+tools_image() {
+    docker image inspect "$TOOLS_IMAGE" >/dev/null 2>&1 || \
+        docker build -t "$TOOLS_IMAGE" -f "$TOP/docker/Dockerfile.tools" "$TOP/docker"
+}
+
 cross() {
     cross_image
     docker run --rm -v "$TOP:$TOP" -w "$TOP" ${JOBS:+-e JOBS="$JOBS"} "$CROSS_IMAGE" "$@"
@@ -43,8 +53,8 @@ vyos_build() {
 step_kernel()   { "$TOP/kernel/prepare-tree.sh"; cross "$TOP/kernel/build-kernel.sh"; }
 step_packages() { cross "$TOP/packages/build-packages.sh"; }
 step_iso()      { "$TOP/image/build-iso.sh"; }
-step_emmc()     { cross_image; "$TOP/image/build-emmc.sh"; }
-step_dev()      { cross_image; "$TOP/image/build-dev.sh"; }
+step_emmc()     { tools_image; "$TOP/image/build-emmc.sh"; }
+step_dev()      { tools_image; "$TOP/image/build-dev.sh"; }
 
 case "${1:-all}" in
     kernel|packages|iso|all|dev) vyos_build ;;

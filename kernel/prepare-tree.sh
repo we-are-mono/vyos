@@ -48,8 +48,23 @@ fi
 
 # ASK's tool reads its download-cache mirrors from meta-ask/site.conf, which a
 # local checkout may have (it is not in the release); without it, it fetches
-# the stable kernel and the NXP SDK from their upstream git servers.
-[ -f "$ASK_REPO/meta-ask/site.conf" ] && cp "$ASK_REPO/meta-ask/site.conf" "$ASKDIR/meta-ask/"
+# the stable kernel and the NXP SDK from their upstream git servers, whole
+# histories (several GB) for two commits. Fetch just those two commits,
+# shallow, first: the tool skips a commit the work repository already has.
+if [ -f "$ASK_REPO/meta-ask/site.conf" ]; then
+    cp "$ASK_REPO/meta-ask/site.conf" "$ASKDIR/meta-ask/"
+else
+    kernel_rev=$(sed -n 's/^KERNEL_SRCREV = "\(.*\)"/\1/p' "$ASKDIR/meta-ask/recipes-kernel/linux/linux-ask_$ASK_LINE.bb")
+    sdk_rev=$(sed -n 's/^NXP_SDK_SRCREV = "\(.*\)"/\1/p' "$ASKDIR/pins/$ASK_LINE/nxp-sdk-srcrev.inc")
+    [ -d "$TREE/.git" ] || git init -q "$TREE"
+    for pair in "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git $kernel_rev" \
+                "https://github.com/nxp-qoriq/linux.git $sdk_rev"; do
+        set -- $pair
+        git -C "$TREE" cat-file -e "$2^{commit}" 2>/dev/null && continue
+        echo "I: fetching $2 (shallow) from $1"
+        git -C "$TREE" fetch -q --depth 1 --no-tags "$1" "$2"
+    done
+fi
 echo "I: ASK $ASK_LINE series (tools/kernel_series.py prepare)"
 python3 -I "$ASKDIR/tools/kernel_series.py" prepare --line "$ASK_LINE" --work "$TREE"
 

@@ -19,6 +19,6 @@ grep -q 'flags: .*F' /proc/sys/fs/binfmt_misc/qemu-aarch64 2>/dev/null || [ "$(u
 VERSION=${VERSION:-$(date -u +%Y.%m.%d-%H%M)-mono-dev}
 echo "I: development build $VERSION on $(basename "$BASE")"
 docker run --rm --privileged --user 0 -v "$TOP:$TOP" -w "$TOP" \
-    -e OWNER="$(id -u):$(id -g)" "${CROSS_IMAGE:?run through build.sh}" \
+    -e OWNER="$(id -u):$(id -g)" "${TOOLS_IMAGE:?run through build.sh}" \
     "$HERE/dev-assemble.sh" "$BASE" "$BASE.debs" "$BUILD/debs" "$VERSION" "$BUILD/images" "$BUILD/dev-work" \
     "$VYOS_BUILD/data/live-build-config/rootfs/excludes"

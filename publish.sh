@@ -17,7 +17,7 @@ IMAGES=$BUILD/images
 
 ISO=$(cat "$IMAGES/latest-iso" 2>/dev/null || true)
 EMMC=$(cat "$IMAGES/latest-emmc" 2>/dev/null || true)
-[ -f "$ISO" ] && [ -f "$EMMC" ] && [ -f "$EMMC.gz" ] \
+[ -f "$ISO" ] && [ -f "$EMMC.gz" ] && [ -f "$EMMC.sha256" ] \
     || { echo "E: no build to publish; run './build.sh all'"; exit 1; }
 
 # The release records the commit it was built from; it must be one GitHub has.

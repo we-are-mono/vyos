@@ -1,6 +1,6 @@
 #!/bin/bash
 # Assemble the flashable Mono Gateway eMMC image from a VyOS ISO.
-# Runs as root inside the mono-vyos-cross container (build-emmc.sh); the GRUB
+# Runs as root inside the image tools container (build-emmc.sh); the GRUB
 # bookkeeping step chroots into the arm64 rootfs through qemu-user binfmt.
 #
 # Layout (MBR — the whole table lives in sector 0):

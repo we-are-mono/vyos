@@ -1,9 +1,11 @@
 #!/bin/bash
 # Build the Mono Gateway VyOS ISO with vyos-build (live-build), arm64.
 #
-# VyOS publishes its build container for amd64 only; live-build bootstraps
-# and configures the arm64 chroot through the host's qemu-aarch64 binfmt
-# handler (registered with the F flag, so it works inside the container).
+# On an arm64 host it runs natively, in our arm64 build of VyOS's build
+# container (VYOS_BUILD_IMAGE_ARM64). On x86-64 it runs in VyOS's amd64
+# container, and live-build bootstraps and configures the arm64 chroot through
+# the host's qemu-aarch64 binfmt handler (registered with the F flag, so it
+# works inside the container): about four times slower.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -12,14 +14,18 @@ TOP=$(cd "$HERE/.." && pwd)
 
 SRC=$VYOS_BUILD
 
-IMAGE=$VYOS_BUILD_IMAGE
+if [ "$(uname -m)" = aarch64 ]; then
+    IMAGE=${VYOS_BUILD_IMAGE_ARM64:?no arm64 vyos-build image pinned in pins.sh}
+else
+    IMAGE=$VYOS_BUILD_IMAGE
+fi
 FLAVOR=mono-gateway-dk
 VERSION=${VERSION:-$(date -u +%Y.%m.%d-%H%M)-mono}
 
 grep -qx "kernel_version = \"$KERNEL_VERSION\"" "$HERE/flavors/$FLAVOR.toml" \
     || { echo "E: flavors/$FLAVOR.toml kernel_version is not $KERNEL_VERSION (pins.sh)"; exit 1; }
 
-grep -q 'flags: .*F' /proc/sys/fs/binfmt_misc/qemu-aarch64 2>/dev/null \
+[ "$(uname -m)" = aarch64 ] || grep -q 'flags: .*F' /proc/sys/fs/binfmt_misc/qemu-aarch64 2>/dev/null \
     || { echo "E: qemu-aarch64 binfmt with the F flag is required (apt install qemu-user-static)"; exit 1; }
 ls "$BUILD"/debs/linux-image-"$KERNEL_RELEASE"_*.deb >/dev/null \
     || { echo "E: no kernel .deb; run 'build.sh kernel'"; exit 1; }

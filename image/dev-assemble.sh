@@ -3,7 +3,7 @@
 # .debs that changed since installed on top, repacked as an ISO that the eMMC
 # step and VyOS's `add system image` take like a full one.
 #
-# Runs as root in the cross-build container (build-dev.sh). Only the changed
+# Runs as root in the image tools container (build-dev.sh). Only the changed
 # packages' maintainer scripts run emulated (through the host's qemu-user
 # binfmt handler); unpacking, repacking and the ISO are native. For
 # development only: an upgraded root filesystem is close to, but not the same

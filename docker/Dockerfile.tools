@@ -1,0 +1,10 @@
+# Image tools for the eMMC and development steps (image/emmc-assemble.sh,
+# image/dev-assemble.sh), for either host architecture: they unpack and repack
+# squashfs and ISO images and chroot into the arm64 root filesystem (natively
+# on arm64, through the host's qemu-user binfmt handler on x86-64).
+FROM debian:bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 xorriso squashfs-tools e2fsprogs fdisk dpkg gzip \
+    && rm -rf /var/lib/apt/lists/*
