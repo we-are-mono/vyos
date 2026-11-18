@@ -28,8 +28,43 @@ jobs:
           docker image prune -af >/dev/null
           df -h /
 
+      # The kernel takes 45-65 minutes here and most builds do not change
+      # it: its outputs are cached, keyed on everything that defines it.
+      # The cache holds what the packages step builds against: the kernel
+      # .debs and signing key record, ASK's export and cdx modules, and the
+      # kernel build tree without its object files (out-of-tree modules need
+      # its headers, scripts, Module.symvers, vmlinux for BTF and the module
+      # signing key, so they match the cached kernel).
+      - name: Restore the kernel
+        id: kernel
+        uses: actions/cache/restore@v4
+        with:
+          key: kernel-${{ hashFiles('pins.sh', 'kernel/**', 'docker/Dockerfile.cross') }}
+          path: |
+            build/ask
+            build/kernel/src
+            build/kernel/ask-cdx
+            build/debs/linux-*.deb
+            build/debs/.kernel-key
+
       - name: Kernel
-        run: ./build.sh kernel
+        if: steps.kernel.outputs.cache-hit != 'true'
+        run: |
+          ./build.sh kernel
+          find build/kernel/src \( -name '*.o' -o -name '*.ko' -o -name '*.a' -o -name '*.mod.c' \) -delete
+          rm -rf build/kernel/src/debian build/kernel/src/vmlinux.unstripped build/kernel/src/arch/arm64/boot/Image*
+
+      - name: Save the kernel
+        if: steps.kernel.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.kernel.outputs.cache-primary-key }}
+          path: |
+            build/ask
+            build/kernel/src
+            build/kernel/ask-cdx
+            build/debs/linux-*.deb
+            build/debs/.kernel-key
 
       - name: Packages
         run: ./build.sh packages

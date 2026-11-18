@@ -252,7 +252,7 @@ Priority: optional
 Description: Mono Gateway DK board support for VyOS
  U-Boot boot support: the raw kernel Image and device tree in every image's
  /boot, and /boot/extlinux/extlinux.conf kept in step with VyOS's image list,
- so `add system image` upgrades boot. First-boot growth of the persistence
+ so images added with "add system image" boot. First-boot growth of the persistence
  partition to the size of the eMMC, and the RGBW status LED's steady state
  (white, dim) once VyOS is configured.
 EOF
