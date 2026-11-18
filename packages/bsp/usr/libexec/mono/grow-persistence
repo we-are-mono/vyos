@@ -1,0 +1,48 @@
+#!/bin/sh
+# Grow the VyOS persistence partition and filesystem to fill the eMMC.
+#
+# The flashable image carries a small filesystem so it can be staged in RAM
+# and written quickly; its partition starts at 32 MiB, past the boot firmware
+# (RCW/BL2, FIP, U-Boot env, FMan microcode) in the first 32 MiB, which this
+# never touches. The table is MBR: only sector 0 is rewritten, so the firmware
+# region stays clear, and nothing is written past the end of the old table.
+set -eu
+
+dev=$(blkid -L persistence) || { echo "no persistence partition"; exit 0; }
+name=${dev##*/}
+case "$name" in
+    mmcblk*p[0-9]*) disk=/dev/${name%p*}; part=${name##*p} ;;
+    *) echo "persistence on $dev is not eMMC; leaving it alone"; exit 0 ;;
+esac
+sysdisk=/sys/class/block/${disk##*/}
+syspart=/sys/class/block/$name
+
+label=$(sfdisk --dump "$disk" | sed -n 's/^label: //p')
+[ "$label" = dos ] || { echo "$disk is not an MBR disk ($label); leaving it alone"; exit 0; }
+
+disk_sectors=$(cat "$sysdisk/size")
+start=$(cat "$syspart/start")
+size=$(cat "$syspart/size")
+
+if [ $((start + size)) -lt "$disk_sectors" ]; then
+    # A GPT backup header left at the end by a previous OpenWrt install would
+    # make partitioning tools offer to "restore" a GPT over the MBR. Drop it
+    # now, while the last sector is still outside the partition: once grown,
+    # it belongs to the filesystem.
+    last=$((disk_sectors - 1))
+    if dd if="$disk" bs=512 skip="$last" count=1 2>/dev/null | head -c 8 | grep -q 'EFI PART'; then
+        echo "clearing stale GPT backup header at sector $last"
+        dd if=/dev/zero of="$disk" bs=512 seek="$last" count=1 conv=notrunc,fsync 2>/dev/null
+    fi
+    echo "growing $dev to the end of $disk"
+    echo ",+" | sfdisk --no-reread --no-tell-kernel -q -N "$part" "$disk"
+    partx -u --nr "$part" "$disk"
+fi
+
+fs_blocks=$(dumpe2fs -h "$dev" 2>/dev/null | sed -n 's/^Block count: *//p')
+fs_bsize=$(dumpe2fs -h "$dev" 2>/dev/null | sed -n 's/^Block size: *//p')
+part_bytes=$(( $(cat "$syspart/size") * 512 ))
+if [ $((fs_blocks * fs_bsize + 16 * 1024 * 1024)) -lt "$part_bytes" ]; then
+    echo "growing the filesystem on $dev"
+    resize2fs "$dev"
+fi

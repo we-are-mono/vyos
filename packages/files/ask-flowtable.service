@@ -1,0 +1,25 @@
+[Unit]
+Description=ASK hardware flow-offload service
+Documentation=file:///etc/ask/offload.conf
+# Loading cdx is what activates the DPAA/FMan offload hardware, so it happens
+# here rather than from modules-load.d: disabling this unit keeps ASK fully
+# off and Linux forwarding in software. vyos-router.service is Type=simple, so
+# this orders the start after VyOS begins applying its configuration, not
+# after it finishes; the daemon follows interface changes and binds the ports
+# the policy selects ("devices auto") as VyOS brings them up.
+After=vyos-router.service systemd-modules-load.service
+Wants=vyos-router.service
+
+[Service]
+# The daemon supervises its own worker: service-start double-forks it and
+# waits on a readiness pipe, and no-ops cleanly when cdx is not loaded (no
+# ASK FMan microcode), so a failed module load leaves the unit inert.
+Type=forking
+ExecStartPre=-/sbin/modprobe cdx
+ExecStartPre=-/sbin/modprobe ask_flowtable
+ExecStart=/usr/sbin/ask-flowtable service-start
+ExecStop=/usr/sbin/ask-flowtable service-stop
+ExecReload=/usr/sbin/ask-flowtable service-restart
+
+[Install]
+WantedBy=multi-user.target

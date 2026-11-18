@@ -1,0 +1,32 @@
+From 57b23f50c3b460d1d1e0939047d71967b042cfbc Mon Sep 17 00:00:00 2001
+From: Tomaz Zaman <tomaz@mono.si>
+Date: Fri, 13 Nov 2026 19:58:45 +0100
+Subject: [PATCH] sdk_dpaa: select PHYLINK
+
+mac_probe() derives the MAC speed with phylink_interface_max_speed(), so
+the driver needs phylink built at least as far as itself. Nothing in the
+SDK Kconfig asked for it; configs that got PHYLINK=y did so only because
+an unrelated built-in driver (DPAA2, ENETC) selects it. A config without
+one links vmlinux with an undefined reference to
+phylink_interface_max_speed.
+
+Signed-off-by: Tomaz Zaman <tomaz@mono.si>
+---
+ drivers/net/ethernet/freescale/sdk_dpaa/Kconfig | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/net/ethernet/freescale/sdk_dpaa/Kconfig b/drivers/net/ethernet/freescale/sdk_dpaa/Kconfig
+index 147b421c7d68..6f63e4e18c68 100644
+--- a/drivers/net/ethernet/freescale/sdk_dpaa/Kconfig
++++ b/drivers/net/ethernet/freescale/sdk_dpaa/Kconfig
+@@ -2,6 +2,7 @@ menuconfig FSL_SDK_DPAA_ETH
+ 	tristate "DPAA Ethernet"
+ 	depends on (FSL_SOC || ARM64 || ARM) && FSL_SDK_BMAN && FSL_SDK_QMAN && FSL_SDK_FMAN && !FSL_DPAA_ETH
+ 	select PHYLIB
++	select PHYLINK
+ 	help
+ 	  Data Path Acceleration Architecture Ethernet driver,
+ 	  supporting the Freescale QorIQ chips.
+-- 
+2.47.3
+

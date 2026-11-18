@@ -1,0 +1,45 @@
+#!/bin/sh
+# Mono Gateway status LED: the same steady state OpenWrt and the ASK test image
+# set (OpenWrt: uci-defaults 11-mono-gateway-leds; ASK: S20status-leds).
+#
+# U-Boot lights the RGBW LED green while the board boots. Once VyOS has applied
+# its configuration this turns green off and lights white at a low brightness:
+# a dim static "ready" light. The lp5812 driver ignores `default-state` in the
+# device tree and never resets the chip, so this has to happen in userspace.
+#
+# The LED is one multicolour device (status:rgbw); multi_intensity follows
+# multi_index, which this reads rather than assuming the DTS child order.
+set -eu
+
+LED=/sys/class/leds/status:rgbw
+WHITE_BRIGHTNESS=16
+
+# VyOS writes /tmp/vyos-config-status once the boot configuration has been
+# applied (vyos-1x src/init/vyos-config waits on the same file).
+i=0
+while [ ! -e /tmp/vyos-config-status ]; do
+    i=$((i + 1))
+    [ "$i" -le 600 ] || { echo "status-led: VyOS configuration not applied after 10 min" >&2; break; }
+    sleep 1
+done
+
+# leds-lp5812 loads from modules-load.d, but its I2C bus sits behind a mux and
+# the probe can defer; give it a while.
+i=0
+while [ ! -e "$LED/multi_index" ]; do
+    i=$((i + 1))
+    [ "$i" -le 30 ] || { echo "status-led: $LED did not appear" >&2; exit 1; }
+    sleep 1
+done
+
+intensity=
+for color in $(cat "$LED/multi_index"); do
+    case "$color" in
+        white) intensity="$intensity 255" ;;
+        *)     intensity="$intensity 0" ;;
+    esac
+done
+
+echo none > "$LED/trigger"
+echo $intensity > "$LED/multi_intensity"
+echo "$WHITE_BRIGHTNESS" > "$LED/brightness"

@@ -1,0 +1,13 @@
+[Unit]
+Description=Grow the VyOS persistence partition to fill the eMMC
+DefaultDependencies=no
+After=local-fs.target
+Before=vyos-router.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/mono/grow-persistence
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

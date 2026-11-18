@@ -1,0 +1,14 @@
+[Unit]
+Description=Set the Mono Gateway status LED to its ready state
+# U-Boot's green means "booting" until VyOS has applied its configuration,
+# as OpenWrt's late `led` service does. vyos-router.service is Type=simple,
+# so the script itself waits for VyOS's /tmp/vyos-config-status; Type=simple
+# keeps that wait from holding up multi-user.target.
+After=vyos-router.service systemd-modules-load.service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/mono/status-led
+
+[Install]
+WantedBy=multi-user.target

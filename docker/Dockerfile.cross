@@ -1,0 +1,23 @@
+# Cross-build environment for the Mono Gateway VyOS kernel, ASK modules and
+# ASK userspace. Debian bookworm, the same release (gcc 12, glibc 2.36) the
+# VyOS rolling image is built on, so arm64 binaries built here run there.
+FROM debian:bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN dpkg --add-architecture arm64 && apt-get update && apt-get install -y --no-install-recommends \
+        build-essential crossbuild-essential-arm64 \
+        bc bison flex kmod cpio rsync python3 git ca-certificates curl xz-utils zstd \
+        libssl-dev libelf-dev libdw-dev libssl-dev:arm64 libelf-dev:arm64 \
+        dpkg-dev debhelper fakeroot device-tree-compiler openssl \
+        pkg-config libnl-3-dev:arm64 libnl-genl-3-dev:arm64 libxtables-dev:arm64 \
+        autoconf automake libtool dwarves \
+        squashfs-tools xorriso e2fsprogs fdisk \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build as the invoking user so outputs on the bind mount are not root-owned.
+ARG UID=1000
+ARG GID=1000
+# -o: the host's IDs may already exist in the base image (GID 100 is 'users').
+RUN groupadd -o -g ${GID} build && useradd -o -m -u ${UID} -g ${GID} build
+USER build
+ENV ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
