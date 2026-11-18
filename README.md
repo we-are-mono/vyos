@@ -46,7 +46,11 @@ The result lands in `build/images/`: `vyos-<version>-mono-gateway-dk-emmc.img`,
 with a `.gz` and a `.sha256`, and the ISO it is made from.
 
 A full build takes about an hour on an x86-64 host, most of it in the ISO step:
-vyos-build runs every arm64 program of the image build under qemu. For
+vyos-build runs every arm64 program of the image build under qemu. On an
+arm64 host the ISO step runs natively, in an arm64 build of VyOS's build
+container (`VYOS_BUILD_IMAGE_ARM64` in `pins.sh`, made by
+`.github/workflows/vyos-build-image.yml`), in about 8 minutes; the
+release workflow builds that way. For
 development there is a shortcut:
 
 ```
@@ -279,7 +283,10 @@ U-Boot shows the installed images on the serial console for 3 seconds before
 it boots the default. If a new image does not come up, reset the Gateway and
 pick the previous one there.
 
-To publish a release from a build (maintainers): `./publish.sh`.
+Releases are built and published by GitHub Actions (maintainers):
+`gh workflow run release.yml -f publish=true`, or the "Build (and release)"
+workflow in the Actions tab. `./publish.sh` publishes a local full build the
+same way.
 
 ## Known gaps
 
