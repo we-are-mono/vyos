@@ -1,0 +1,47 @@
+# The vyos-build container for arm64, so the ISO step runs natively on an
+# arm64 runner. VyOS publishes it for amd64 only; its Dockerfile builds on
+# aarch64 as it is. Run it after changing VYOS_BUILD_REF in pins.sh, then pin
+# the printed digest as VYOS_BUILD_IMAGE_ARM64.
+name: vyos-build image (arm64)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: vyos-build at the pinned commit
+        run: |
+          TOP=$PWD; . ./pins.sh
+          git clone -q "$VYOS_BUILD_REPO" vyos-build
+          git -C vyos-build checkout -q --detach "$VYOS_BUILD_REF"
+          echo "REF=${VYOS_BUILD_REF:0:12}" >> "$GITHUB_ENV"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: vyos-build/docker
+          platforms: linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/vyos-build:${{ env.REF }}-arm64
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=vyos-build ${{ env.REF }} for arm64, built from VyOS's Dockerfile
+
+      - name: Digest to pin
+        run: |
+          echo "VYOS_BUILD_IMAGE_ARM64=ghcr.io/${{ github.repository_owner }}/vyos-build@${{ steps.push.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"
